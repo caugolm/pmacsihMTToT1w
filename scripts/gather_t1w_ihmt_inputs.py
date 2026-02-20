@@ -32,7 +32,7 @@ def gather_inputs():
 
     The target T1w to use for registration is based on an FTDC heuristic, if there is more than one T1w image for the session.
 
-    The ihMT image is assumed to be named 'part-mag_ihMT<whichever>.nii.gz' and located in a sub-subject/ses-session/output directory.
+    The ihMT image is assumed to be named 'part-mag_ihMT<whichever>.nii.gz' and located in a sub-subject/ses-session/anat directory.
 
     --- Processing steps ---
 
@@ -126,8 +126,8 @@ def gather_inputs():
             selected_t1w_bids = select_best_t1w_image(input_t1w_bids)
 
             # ihMTR image
-            ihmt_image_path = os.path.join(args.ihmt_dir, f"sub-{participant}", f"ses-{session}", "output",
-                                          "acq-ihMTgre2500um_part-mag_ihMTR.nii.gz")
+            ihmt_image_path = os.path.join(args.ihmt_dir, f"sub-{participant}", f"ses-{session}", "anat",
+                                          f"sub-{participant}_ses-{session}_acq-ihMTgre2500um_part-mag_ihMTR.nii.gz")
 
             if not os.path.exists(ihmt_image_path):
                 logger.warning(f"ihMT image not found for participant {participant}, session {session}: {ihmt_image_path}")
@@ -137,7 +137,7 @@ def gather_inputs():
 
             # Copy images to output dataset
             ihmt_output_rel_path = os.path.join(f"sub-{participant}", f"ses-{session}", "anat",
-                                               f"sub-{participant}_ses-{session}acq-ihMTgre2500um_part-mag_ihMTR.nii.gz")
+                                               f"sub-{participant}_ses-{session}_acq-ihMTgre2500um_part-mag_ihMTR.nii.gz")
 
             ihmt_ref_bids = bids_helpers.image_to_bids(ihmt_ref_input, output_dataset, ihmt_output_rel_path,
                                                       metadata={'Sources': [ihmt_image_path], 'SkullStripped': False})
@@ -157,14 +157,14 @@ def gather_inputs():
                 metadata={'Sources': [selected_t1w_mask_bids.get_uri(relative=False)]}
                 )
 
-            ihmt_input_mask = get_ihmt_mask_image(args.ihmt_dir, participant, session)
+            # ihmt_input_mask = get_ihmt_mask_image(args.ihmt_dir, participant, session)
 
-            output_ihmt_mask_bids = bids_helpers.image_to_bids(
-                ihmt_input_mask, output_dataset,
-                os.path.join(f"sub-{participant}", f"ses-{session}", "anat",
-                             f"sub-{participant}_ses-{session}_desc-sepia_mask.nii.gz"),
-                metadata={'Sources': [ihmt_input_mask]}
-                )
+            #output_ihmt_mask_bids = bids_helpers.image_to_bids(
+            #    ihmt_input_mask, output_dataset,
+            #    os.path.join(f"sub-{participant}", f"ses-{session}", "anat",
+            #                 f"sub-{participant}_ses-{session}_desc-sepia_mask.nii.gz"),
+            #    metadata={'Sources': [ihmt_input_mask]}
+            #    )
 
 
 def get_ihmt_reference_image(ihmt_dir, participant, session, work_dir):
@@ -185,7 +185,7 @@ def get_ihmt_reference_image(ihmt_dir, participant, session, work_dir):
     if not os.path.exists(ihmt_dir):
         raise ValueError(f"ihMT image not found: {ihmt_dir}")
 
-    ihmt_image_path = os.path.join(ihmt_dir, f"sub-{participant}", f"ses-{session}", "output", "acq-ihMTgre2500um_part-mag_ihMTR.nii.gz")
+    ihmt_image_path = os.path.join(ihmt_dir, f"sub-{participant}", f"ses-{session}", "anat", f"sub-{participant}_ses-{session}_acq-ihMTgre2500um_part-mag_ihMTR.nii.gz")
 
     ihmt_image = ants.image_read(ihmt_image_path)
     if ihmt_image is None:
@@ -193,7 +193,7 @@ def get_ihmt_reference_image(ihmt_dir, participant, session, work_dir):
 
     ihmt_image_np = ihmt_image.numpy()
     # get first volume
-    ihmt_ref_np = ihmt_image_np[:,:,:,0]
+    ihmt_ref_np = ihmt_image_np[:,:,:]
 
     ihmt_ref = ants.from_numpy(ihmt_ref_np, origin=ihmt_image.origin[:3], spacing=ihmt_image.spacing[:3],
                              direction=ihmt_image.direction[:3,:3])
