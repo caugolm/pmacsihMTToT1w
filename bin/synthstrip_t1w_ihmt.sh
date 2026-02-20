@@ -25,8 +25,8 @@ function help() {
 cat << HELP
   `usage`
 
-  This is a wrapper script that does synthstrip brain extraction on T1w and QSM images in a BIDS dataset. These masks are
-  used to provide a consistent brain extraction across modalities for registration, and are independent of sepia or the
+  This is a wrapper script that does synthstrip brain extraction on T1w and ihMT images in a BIDS dataset. These masks are
+  used to provide a consistent brain extraction across modalities for registration, and are independent of ihmt_proc or the
   antsnetct processing.
 
   Images are run serially, each takes a couple of minutes. Full parallel processing is not implemented to limit memory
@@ -34,7 +34,7 @@ cat << HELP
 
   Required args:
 
-    -i input dataset, as produced by gather_t1w_qsm_inputs.sh
+    -i input dataset, as produced by gather_t1w_ihmt_inputs.sh
 
   Optional args:
 
@@ -48,7 +48,7 @@ cat << HELP
 
   Output:
 
-  Output is in the same dataset as the input. Derivative masks of the T1w and QSM images are created with suffixes
+  Output is in the same dataset as the input. Derivative masks of the T1w and ihMT images are created with suffixes
 
     _desc-synthstrip_mask.nii.gz
 
@@ -97,8 +97,8 @@ bsub \
   -cwd . \
   -n 2 \
   -J synthstrip_t1w_qsm \
-  -o "${inputBIDS}/code/logs/synthstrip_t1w_qsm_${date}_%J.txt" \
-    ${repoDir}/scripts/synthstrip_t1w_qsm.sh \
+  -o "${inputBIDS}/code/logs/synthstrip_t1w_ihmt_${date}_%J.txt" \
+    ${repoDir}/scripts/synthstrip_t1w_ihmt.sh \
       -f ${container} \
       -i ${inputBIDS} \
       -c ${doNoCSFMask} \

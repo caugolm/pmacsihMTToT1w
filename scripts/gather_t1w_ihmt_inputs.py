@@ -23,7 +23,7 @@ class RawDefaultsHelpFormatter(
 def gather_inputs():
 
     parser = argparse.ArgumentParser(formatter_class=RawDefaultsHelpFormatter, add_help = False,
-                                     description='''Gather T1w and QSM images for registration.
+                                     description='''Gather T1w and ihMT images for registration.
 
     The required input file is a list of participants and sessions to process, in CSV format with columns 'participant'
     and 'session'.
@@ -32,15 +32,14 @@ def gather_inputs():
 
     The target T1w to use for registration is based on an FTDC heuristic, if there is more than one T1w image for the session.
 
-    The QSM image is assumed to be named 'Sepia_part-mag.nii.gz' and located in a sub-subject/ses-session/output directory.
+    The ihMT image is assumed to be named 'part-mag_ihMT<whichever>.nii.gz' and located in a sub-subject/ses-session/output directory.
 
     --- Processing steps ---
 
     1. T1w selection. If there is more than one T1w image for the session, the best one is selected based on an FTDC
     heuristic. If there is only one T1w image, it is used.
 
-    2. QSM selection. The first volume from the session QSM image 'Sepia_part-mag.nii.gz' is is used as the target for
-    registration.
+    2. ihMT selection. The ihMT image 'pick one.nii.gz' is is used as the target for registration.
 
 
     ''')
@@ -49,7 +48,7 @@ def gather_inputs():
                                  "derivatives. The script looks for images matching '_desc-preproc_T1w.nii.gz' as input",
                                  type=str, required=True)
     required_parser.add_argument("--session-list", help="CSV file with participants and sessions to process", type=str, required=True)
-    required_parser.add_argument("--qsm-dir", help="Sepia output directory containing the QSM images. This is not a BIDS "
+    required_parser.add_argument("--ihmt-dir", help="ihmt_proc output directory containing the ihMT images. This is not a BIDS "
                                  "dataset, though it has a sub-subject/ses-session directory structure", type=str,
                                  required=True)
     required_parser.add_argument("--output-dataset", help="Output BIDS dataset dir", type=str, required=True)
@@ -88,7 +87,7 @@ def gather_inputs():
 
     output_dataset_link_paths = [os.path.abspath(input_dataset)]
 
-    bids_helpers.update_output_dataset(output_dataset, input_dataset_description['Name'] + '_t1w_to_qsm',
+    bids_helpers.update_output_dataset(output_dataset, input_dataset_description['Name'] + '_t1w_to_ihmt',
                                        output_dataset_link_paths)
 
     with open(os.path.join(output_dataset, 'dataset_description.json'), 'r') as f:
@@ -105,7 +104,7 @@ def gather_inputs():
         session_df = pd.read_csv(f, names=['participant', 'session'])
 
     for participant, session in zip(session_df['participant'], session_df['session']):
-        with tempfile.TemporaryDirectory(suffix=f"qsm_t1w_selector.tmpdir") as work_dir:
+        with tempfile.TemporaryDirectory(suffix=f"ihmt_t1w_selector.tmpdir") as work_dir:
             logger.info(f"Processing participant {participant}, session {session}")
 
             if os.path.exists(os.path.join(output_dataset, f"sub-{participant}", f"ses-{session}", 'anat')):
@@ -126,22 +125,22 @@ def gather_inputs():
 
             selected_t1w_bids = select_best_t1w_image(input_t1w_bids)
 
-            # Multi-echo QSM magnitude image
-            qsm_image_path = os.path.join(args.qsm_dir, f"sub-{participant}", f"ses-{session}", "output",
-                                          "Sepia_part-mag.nii.gz")
+            # ihMTR image
+            ihmt_image_path = os.path.join(args.ihmt_dir, f"sub-{participant}", f"ses-{session}", "output",
+                                          "acq-ihMTgre2500um_part-mag_ihMTR.nii.gz")
 
-            if not os.path.exists(qsm_image_path):
-                logger.warning(f"QSM image not found for participant {participant}, session {session}: {qsm_image_path}")
+            if not os.path.exists(ihmt_image_path):
+                logger.warning(f"ihMT image not found for participant {participant}, session {session}: {ihmt_image_path}")
                 continue
 
-            qsm_ref_input = get_qsm_reference_image(args.qsm_dir, participant, session, work_dir)
+            ihmt_ref_input = get_ihmt_reference_image(args.ihmt_dir, participant, session, work_dir)
 
             # Copy images to output dataset
-            qsm_output_rel_path = os.path.join(f"sub-{participant}", f"ses-{session}", "anat",
-                                               f"sub-{participant}_ses-{session}_desc-SepiaEcho1_magnitude.nii.gz")
+            ihmt_output_rel_path = os.path.join(f"sub-{participant}", f"ses-{session}", "anat",
+                                               f"sub-{participant}_ses-{session}acq-ihMTgre2500um_part-mag_ihMTR.nii.gz")
 
-            qsm_ref_bids = bids_helpers.image_to_bids(qsm_ref_input, output_dataset, qsm_output_rel_path,
-                                                      metadata={'Sources': [qsm_image_path], 'SkullStripped': False})
+            ihmt_ref_bids = bids_helpers.image_to_bids(ihmt_ref_input, output_dataset, ihmt_output_rel_path,
+                                                      metadata={'Sources': [ihmt_image_path], 'SkullStripped': False})
 
             output_t1w_bids = bids_helpers.image_to_bids(selected_t1w_bids.get_path(), output_dataset,
                                                          selected_t1w_bids.get_rel_path(), metadata={
@@ -158,76 +157,76 @@ def gather_inputs():
                 metadata={'Sources': [selected_t1w_mask_bids.get_uri(relative=False)]}
                 )
 
-            qsm_input_mask = get_qsm_mask_image(args.qsm_dir, participant, session)
+            ihmt_input_mask = get_ihmt_mask_image(args.ihmt_dir, participant, session)
 
-            output_qsm_mask_bids = bids_helpers.image_to_bids(
-                qsm_input_mask, output_dataset,
+            output_ihmt_mask_bids = bids_helpers.image_to_bids(
+                ihmt_input_mask, output_dataset,
                 os.path.join(f"sub-{participant}", f"ses-{session}", "anat",
                              f"sub-{participant}_ses-{session}_desc-sepia_mask.nii.gz"),
-                metadata={'Sources': [qsm_input_mask]}
+                metadata={'Sources': [ihmt_input_mask]}
                 )
 
 
-def get_qsm_reference_image(qsm_dir, participant, session, work_dir):
+def get_ihmt_reference_image(ihmt_dir, participant, session, work_dir):
     """
-    Get the reference QSM image for registration.
+    Get the reference ihMT image for registration.
 
-    The first volume from the QSM image is used as the reference.
+    The first volume from the ihMT image is used as the reference.
 
     Args:
-        qsm_dir (str): Directory containing the QSM images.
+        ihmt_dir (str): Directory containing the ihMT images.
         participant (str): Participant ID.
         session (str): Session ID.
         work_dir (str): Working directory for temporary files.
 
     Returns:
-        str: reference QSM brain image.
+        str: reference ihMT brain image.
     """
-    if not os.path.exists(qsm_dir):
-        raise ValueError(f"QSM image not found: {qsm_dir}")
+    if not os.path.exists(ihmt_dir):
+        raise ValueError(f"ihMT image not found: {ihmt_dir}")
 
-    qsm_image_path = os.path.join(qsm_dir, f"sub-{participant}", f"ses-{session}", "output", "Sepia_part-mag.nii.gz")
+    ihmt_image_path = os.path.join(ihmt_dir, f"sub-{participant}", f"ses-{session}", "output", "acq-ihMTgre2500um_part-mag_ihMTR.nii.gz")
 
-    qsm_image = ants.image_read(qsm_image_path)
-    if qsm_image is None:
-        raise ValueError(f"Failed to read QSM image: {qsm_image_path}")
+    ihmt_image = ants.image_read(ihmt_image_path)
+    if ihmt_image is None:
+        raise ValueError(f"Failed to read ihMT image: {ihmt_image_path}")
 
-    qsm_image_np = qsm_image.numpy()
+    ihmt_image_np = ihmt_image.numpy()
     # get first volume
-    qsm_ref_np = qsm_image_np[:,:,:,0]
+    ihmt_ref_np = ihmt_image_np[:,:,:,0]
 
-    qsm_ref = ants.from_numpy(qsm_ref_np, origin=qsm_image.origin[:3], spacing=qsm_image.spacing[:3],
-                             direction=qsm_image.direction[:3,:3])
+    ihmt_ref = ants.from_numpy(ihmt_ref_np, origin=ihmt_image.origin[:3], spacing=ihmt_image.spacing[:3],
+                             direction=ihmt_image.direction[:3,:3])
 
-    qsm_ref_output_fn = os.path.join(work_dir, f"sub-{participant}_ses-{session}_qsm_ref.nii.gz")
+    ihmt_ref_output_fn = os.path.join(work_dir, f"sub-{participant}_ses-{session}_ihmt_ref.nii.gz")
 
-    ants.image_write(qsm_ref, qsm_ref_output_fn)
+    ants.image_write(ihmt_ref, ihmt_ref_output_fn)
 
-    return qsm_ref_output_fn
+    return ihmt_ref_output_fn
 
 
-def get_qsm_mask_image(qsm_dir, participant, session):
+def get_ihmt_mask_image(ihmt_dir, participant, session):
     """
-    Get the QSM brain mask image for registration.
+    Get the ihMT brain mask image for registration.
 
     Args:
-        qsm_dir (str): Directory containing the QSM images.
+        ihmt_dir (str): Directory containing the ihMT images.
         participant (str): Participant ID.
         session (str): Session ID.
         work_dir (str): Working directory for temporary files.
 
     Returns:
-        str: QSM brain mask image.
+        str: ihMT brain mask image.
     """
-    if not os.path.exists(qsm_dir):
-        raise ValueError(f"QSM image not found: {qsm_dir}")
+    if not os.path.exists(ihmt_dir):
+        raise ValueError(f"ihMT image not found: {ihmt_dir}")
 
-    qsm_mask_path = os.path.join(qsm_dir, f"sub-{participant}", f"ses-{session}", "output", "Sepia_mask_QSM.nii.gz")
+    ihmt_mask_path = os.path.join(ihmt_dir, f"sub-{participant}", f"ses-{session}", "output", "Sepia_mask_QSM.nii.gz")
 
-    if not os.path.exists(qsm_mask_path):
-        raise ValueError(f"QSM mask image not found: {qsm_mask_path}")
+    if not os.path.exists(ihmt_mask_path):
+        raise ValueError(f"ihMT mask image not found: {ihmt_mask_path}")
 
-    return qsm_mask_path
+    return ihmt_mask_path
 
 
 def select_best_t1w_image(t1w_bids_list):

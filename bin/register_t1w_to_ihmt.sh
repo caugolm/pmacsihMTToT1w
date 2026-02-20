@@ -26,20 +26,20 @@ function help() {
 cat << HELP
   `usage`
 
-  Wrapper script to organize T1w and QSM data for registration.
+  Wrapper script to organize T1w and ihMT data for registration.
 
   Required args:
 
     -a antsnetct_dataset : BIDS dataset dir, containing the source T1w images and antsnetct derivatives.
 
-    -i gathered_input_dataset : BIDS dataset dir, containing the selected T1w, QSM, and masks for alignment.
+    -i gathered_input_dataset : BIDS dataset dir, containing the selected T1w, ihMT, and masks for alignment.
 
     -o output_dataset : Output BIDS dataset dir, where the registration transforms and label images warped
-                        to QSM space will be stored.
+                        to ihMT space will be stored.
 
     -m mask_method :  method for selecting brain masks for T1w images. Options are "synthstrip",
                       "synthstrip_no_csf", or "no_synthstrip". If the latter, masks from antsnetct (hd-bet)
-                      for T1w and Sepia (for QSM) will be used.
+                      for T1w and will probably crash because nothing has been done for ihMT yet.
 
   Positional args:
 
@@ -48,7 +48,7 @@ cat << HELP
 
   Output:
 
-  Output is to a BIDS derivative dataset. Transform files and warped images are stored as derivatives of the QSM image.
+  Output is to a BIDS derivative dataset. Transform files and warped images are stored as derivatives of the ihMT image.
 
 
 HELP
@@ -95,14 +95,14 @@ for line in $(cat ${imageList}); do
 
   bsub \
     -cwd . \
-    -o "${output_dataset}/code/logs/register_t1w_to_qsm_${participant}_${session}_${date}_%J.txt" \
+    -o "${output_dataset}/code/logs/register_t1w_to_ihmt_${participant}_${session}_${date}_%J.txt" \
     -n $nthreads \
-    -J "regT1wQSM_${participant}_${session}" \
+    -J "regT1wihMT_${participant}_${session}" \
     apptainer exec \
       --containall \
       -B /scratch:/tmp,${antsnetct_dataset},${input_dataset},${output_dataset},${repoDir},${imageList} \
       ${container} \
-        ${repoDir}/scripts/register_t1w_to_qsm.py \
+        ${repoDir}/scripts/register_t1w_to_ihmt.py \
         --antsnetct-dataset ${antsnetct_dataset} \
         --input-dataset ${input_dataset} \
         --registration-mask-strategy ${mask_method} \

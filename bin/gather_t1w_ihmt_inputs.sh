@@ -13,7 +13,7 @@ container="${repoDir}/containers/antsnetct-0.6.2.sif"
 
 function usage() {
   echo "Usage:
-  $0 antsnetct_dataset -a antsnetct_dataset -o output_dataset -q qsm_dir subj_sess_list.csv
+  $0 antsnetct_dataset -a antsnetct_dataset -o output_dataset -q ihmt_dir subj_sess_list.csv
   "
 }
 
@@ -26,7 +26,7 @@ function help() {
 cat << HELP
   `usage`
 
-  Wrapper script to organize T1w and QSM data for registration.
+  Wrapper script to organize T1w and ihMT data for registration.
 
   Required args:
 
@@ -35,8 +35,8 @@ cat << HELP
 
     -o output_dataset : Output BIDS dataset dir, where the gathered images will be stored
 
-    -q qsm_dir : Sepia output directory containing the QSM images. This is not a BIDS
-       dataset, the script looks for files in 'qsm_dir/sub-<participant>/ses-<session>/output'
+    -q ihmt_dir : ihmt_proc output directory containing the ihmt-weighted images. This is not a BIDS
+       dataset, the script looks for files in 'ihmt_dir/sub-<participant>/ses-<session>/output'
 
 
 
@@ -53,7 +53,7 @@ cat << HELP
 
     - Brain mask from antsnetct, stored with suffix '_desc-antsnetct_mask.nii.gz'
 
-    - QSM magnitude image from sepia, stored with suffix '_desc-SepiaEcho1_magnitude.nii.gz'
+    - ihMT image from ihmt_proc, stored with suffix '_part-mag_ihMT<map>.nii.gz'
 
     - Brain mask from sepia processing, stored with suffix '_desc-sepia_mask.nii.gz'
 
@@ -67,13 +67,13 @@ HELP
 
 antsnetct_dataset=""
 output_dataset=""
-qsm_dir=""
+ihmt_dir=""
 
 while getopts "a:o:q:h" opt; do
   case $opt in
     a) antsnetct_dataset=$OPTARG;;
     o) output_dataset=$OPTARG;;
-    q) qsm_dir=$OPTARG;;
+    q) ihmt_dir=$OPTARG;;
     h) help; exit 1;;
     \?) echo "Unknown option $OPTARG"; exit 2;;
     :) echo "Option $OPTARG requires an argument"; exit 2;;
@@ -90,13 +90,13 @@ mkdir -p ${output_dataset}/code/logs
 
 export APPTAINERENV_TMPDIR="/tmp"
 
-bsub -cwd . -o "${output_dataset}/code/logs/gather_t1w_qsm_inputs_${date}_%J.txt" \
+bsub -cwd . -o "${output_dataset}/code/logs/gather_t1w_ihmt_inputs_${date}_%J.txt" \
     apptainer exec \
       --containall \
-      -B /scratch:/tmp,${antsnetct_dataset},${output_dataset},${qsm_dir},${repoDir},${imageList} \
+      -B /scratch:/tmp,${antsnetct_dataset},${output_dataset},${ihmt_dir},${repoDir},${imageList} \
       ${container} \
-        ${repoDir}/scripts/gather_t1w_qsm_inputs.py \
+        ${repoDir}/scripts/gather_t1w_ihmt_inputs.py \
           --antsnetct-dataset ${antsnetct_dataset} \
           --session-list ${imageList} \
-          --qsm-dir ${qsm_dir} \
+          --ihmt-dir ${ihmt_dir} \
           --output-dataset ${output_dataset}
