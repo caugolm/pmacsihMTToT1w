@@ -203,8 +203,10 @@ def t1w_to_ihmt_pipeline():
 
     system_helpers.copy_file(f"{t1w_to_ihmt_reg_output_prefix}0GenericAffine.mat", t1w_to_ihmt_transform)
 
+    ihmt_masked = ants_helpers.apply_mask(ihmt_image_bids.get_path(), ihmt_mask.get_path(), work_dir)
+
     # copy the ref image to output dataset
-    bids_helpers.image_to_bids(ihmt_n4_masked,
+    bids_helpers.image_to_bids(ihmt_masked,
                               output_dataset,
                               ihmt_image_bids.get_rel_path(),
                               metadata={'Sources': [ihmt_image_bids.get_uri(relative=False)]})

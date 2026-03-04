@@ -90,7 +90,7 @@ mkdir -p ${output_dataset}/code/logs
 
 export APPTAINERENV_TMPDIR="/tmp"
 
-bsub -cwd . -o "${output_dataset}/code/logs/gather_t1w_ihmt_inputs_${date}_%J.txt" \
+bsub -M 8GB -cwd . -o "${output_dataset}/code/logs/gather_t1w_ihmt_inputs_${date}_%J.txt" \
     apptainer exec \
       --containall \
       -B /scratch:/tmp,${antsnetct_dataset},${output_dataset},${ihmt_dir},${repoDir},${imageList} \
