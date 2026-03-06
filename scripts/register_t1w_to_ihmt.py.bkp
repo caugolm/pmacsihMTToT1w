@@ -3,7 +3,6 @@
 import antsnetct
 
 from antsnetct import ants_helpers,bids_helpers,system_helpers
-from ants import image_read as ants_image_read
 
 import argparse
 import glob
@@ -12,7 +11,6 @@ import logging
 import os
 import sys
 import tempfile
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +31,10 @@ def t1w_to_ihmt_pipeline():
 
     Output is to a BIDS derivative dataset.
 
-    The T1w image is registered to the ihMTR, using ANTs, with a rigid transform.
+    The T1w image is registered to the ihMT magnitude first echo, using ANTs, with a rigid transform.
 
     The DKT31 labels are masked by GM in the T1w space, and then resampled into the ihMT space.
-    HOA labels are masked by not CSF and resampled into the ihMT space.
-    antsnetct segmentation is resampled into the ihMT space.
-
-    QC processes also run:
-        ihMTR heatmap pngs
-        ihMT segmentation qc 
+    HOA labels are also resampled into the ihMT space, but these are not masked.
 
     Input requirements:
         - BIDS dataset with T1w images and ANTsNetCT segmentations
@@ -223,7 +216,7 @@ def t1w_to_ihmt_pipeline():
     ihmt_masked = ants_helpers.apply_mask(ihmt_image_bids.get_path(), ihmt_mask.get_path(), work_dir)
 
     # copy the masked ihMT image to output dataset
-    ihmt_masked_bids = bids_helpers.image_to_bids(ihmt_masked,
+    bids_helpers.image_to_bids(ihmt_masked,
                               output_dataset,
                               ihmt_image_bids.get_rel_path(),
                               metadata={'Sources': [ihmt_image_bids.get_uri(relative=False)]})
@@ -234,9 +227,6 @@ def t1w_to_ihmt_pipeline():
 
     hoa_seg_bids = bids_helpers.BIDSImage(antsnetct_dataset, t1w_bids.get_derivative_rel_path_prefix() +
                                           '_seg-hoaMasked_dseg.nii.gz')
-
-    seg_bids = bids_helpers.BIDSImage(antsnetct_dataset,
-                                        t1w_bids.get_derivative_rel_path_prefix() + '_seg-antsnetct_dseg.nii.gz')
 
     dkt31_in_ihmt_space = ants_helpers.apply_transforms(ihmt_image_bids.get_path(), dkt31_bids.get_path(),
                                                            [f"{t1w_to_ihmt_reg_output_prefix}0GenericAffine.mat"],
@@ -259,110 +249,6 @@ def t1w_to_ihmt_pipeline():
                                                  ihmt_image_bids.get_derivative_rel_path_prefix() +
                                                  '_space-ihmt_seg-hoa_dseg.nii.gz',
                                                  metadata={'Sources': [hoa_seg_bids.get_uri(relative=False)]})
-    
-    seg_in_ihmt_space = ants_helpers.apply_transforms(ihmt_image_bids.get_path(), seg_bids.get_path(),
-                                                           [f"{t1w_to_ihmt_reg_output_prefix}0GenericAffine.mat"],
-                                                           work_dir,
-                                                           interpolation='GenericLabel',
-                                                           single_precision=True)
-
-    seg_in_ihmt_bids = bids_helpers.image_to_bids(seg_in_ihmt_space, output_dataset,
-                                                   ihmt_image_bids.get_derivative_rel_path_prefix() + \
-                                                    '_space-ihmt_seg-antsnetct_dseg.nii.gz',
-                                                   metadata={'Sources': [seg_bids.get_uri(relative=False)]})
-    compute_qc_stats(ihmt_masked_bids, ihmt_mask, seg_in_ihmt_bids, work_dir, t1w_warped_bids.get_path())
-
-
-# ihmt_masked_bids = ihmt_bids
-# ihmt_mask = mask_bids
-# seg_in_ihmt_bids = seg_in_ihmt_bids
-# none = thick_bids
-def compute_qc_stats(ihmt_bids, mask_bids, seg_bids, work_dir, t1w_brain_ihmt_space_bids=None, thick_bids=None, template=None, 
-                     template_brain_mask=None):
-    """Compute QC statistics for an ihMTR image with segmentation data
-
-    Makes TSV file with some QC statistics for the ihMTR image-space segmentation.
-
-    Parameters:
-    -----------
-    ihmt_bids : BIDSImage
-        ihMTR image object, should be the preprocessed ihMTR image in the output dataset.
-    mask_bids : BIDSImage
-        Brain mask for the preprocessed ihMTR image.
-    seg_bids : BIDSImage
-        antsnetct Segmentation image in the ihMTR space.
-    work_dir : str
-        Path to the working directory.
-    t1w_brain_ihmt_space_bids : BIDSImage, optional
-        masked T1w brain image in the ihMT space.
-    thick_bids : BIDSImage, optional
-        ihMTR image in the output dataset.
-    template : TemplateImage, optional
-        ignored for now Path to the template image. If provided, this is used to compute the correlation between the T1w brain and the
-        template.
-    template_brain_mask: TemplateImage, optional
-        ignored for now Brain mask for the template. Required if template is provided.
-    """
-    # Read in the images to compute stats
-    ihmt_image = ants_image_read(ihmt_bids.get_path())
-    mask_image = ants_image_read(mask_bids.get_path())
-    seg_image = ants_image_read(seg_bids.get_path())
-
-    mask_vol = mask_image[mask_image > 0].shape[0] * np.prod(mask_image.spacing) / 1000.0 # volume in ml
-    seg_vols = [seg_image[seg_image == i].shape[0] * np.prod(seg_image.spacing) / 1000.0 for i in (2, 3, 8, 9, 10, 11)]
-
-    cgm_mask = seg_image == 8
-    
-    cgm_mean_intensity = ihmt_image[cgm_mask].mean()
-    wm_mean_intensity = ihmt_image[seg_image == 2].mean()
-    wm_gm_contrast = wm_mean_intensity / cgm_mean_intensity
-    csf_mean_intensity = ihmt_image[seg_image == 3].mean()
-    bs_mean_intensity = ihmt_image[seg_image == 10].mean()
-    sgm_mean_intensity = ihmt_image[seg_image == 9].mean()
-    cbm_mean_intensity = ihmt_image[seg_image == 11].mean()
-
-
-    if thick_bids is not None:
-        thick_image = ants_image_read(thick_bids.get_path())
-        gm_thickness = thick_image[thick_image > 0.001]
-        thick_mean = gm_thickness.mean()
-        thick_std = gm_thickness.std()
-
-    if t1w_brain_ihmt_space_bids is not None:
-        # template_brain_image = ants_helpers.apply_mask(template.get_path(), template_brain_mask.get_path(), work_dir)
-        t1w_template_corr = ants_helpers.image_correlation(t1w_brain_ihmt_space_bids.get_path(), ihmt_image,
-                                                           work_dir)
-
-    csf_vol = seg_vols[1]
-
-    non_csf_fraction = 1.0 - csf_vol / mask_vol
-
-    # Write the stats to a TSV file
-    with open(ihmt_bids.get_derivative_path_prefix() + '_desc-qc_brainstats.tsv', 'w') as f:
-        f.write("metric\tvalue\n")
-        f.write(f"cgm_mean_intensity\t{cgm_mean_intensity:.4f}\n")
-        f.write(f"wm_mean_intensity\t{wm_mean_intensity:.4f}\n")
-        f.write(f"wm_cgm_contrast\t{wm_gm_contrast:.4f}\n")
-        f.write(f"csf_mean_intensity\t{csf_mean_intensity:.4f}\n")
-        f.write(f"sgm_mean_intensity\t{sgm_mean_intensity:.4f}\n")
-        f.write(f"bs_mean_intensity\t{bs_mean_intensity:.4f}\n")
-        f.write(f"cbm_mean_intensity\t{cbm_mean_intensity:.4f}\n")
-        f.write(f"brain_volume_ml\t{mask_vol:.4f}\n")
-        f.write(f"parenchymal_fraction\t{non_csf_fraction:.4f}\n")
-        f.write(f"csf_volume_ml\t{csf_vol:.4f}\n")
-        f.write(f"gm_volume_ml\t{seg_vols[2]:.4f}\n")
-        f.write(f"wm_volume_ml\t{seg_vols[0]:.4f}\n")
-        f.write(f"sgm_volume_ml\t{seg_vols[3]:.4f}\n")
-        f.write(f"bs_volume_ml\t{seg_vols[4]:.4f}\n")
-        f.write(f"cbm_volume_ml\t{seg_vols[5]:.4f}\n")
-
-        if thick_bids is not None:
-            f.write(f"thickness_mean\t{thick_mean:.4f}\n")
-            f.write(f"thickness_std\t{thick_std:.4f}\n")
-
-        if t1w_brain_ihmt_space_bids is not None:
-            f.write(f"t1w_ihmt_corr\t{t1w_template_corr:.4f}\n")
-
 
 
 if __name__ == '__main__':
