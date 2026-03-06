@@ -17,7 +17,7 @@ function usage() {
   "
 }
 
-if [[ $# -eq 0 ]]; then
+if [[ $# -lt 3 ]]; then
   usage
   exit 1
 fi
