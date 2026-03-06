@@ -4,6 +4,7 @@ import antsnetct
 
 from antsnetct import ants_helpers,bids_helpers,system_helpers
 from ants import image_read as ants_image_read
+from ants import pad_image 
 
 import argparse
 import glob
@@ -270,8 +271,41 @@ def t1w_to_ihmt_pipeline():
                                                    ihmt_image_bids.get_derivative_rel_path_prefix() + \
                                                     '_space-ihmt_seg-antsnetct_dseg.nii.gz',
                                                    metadata={'Sources': [seg_bids.get_uri(relative=False)]})
-    compute_qc_stats(ihmt_masked_bids, ihmt_mask, seg_in_ihmt_bids, work_dir, t1w_warped_bids.get_path())
+    compute_qc_stats(ihmt_masked_bids, ihmt_mask, seg_in_ihmt_bids, work_dir, t1w_warped_bids)
+    make_ihMTR_qc_plots(ihmt_masked_bids, ihmt_mask.get_path(), work_dir)
 
+
+def make_ihMTR_qc_plots(ihmt_bids, mask_image, work_dir):
+    """Generate tiled QC plots for a ihMTR image heatmap
+
+    Output is written as a derivative of the ihMTR_bids image.
+
+    Parameters:
+    -----------
+    ihMTR_bids : BIDSImage
+        ihMTR image object, should be the masked preprocessed ihMTR image in the output dataset.
+    mask_image : image
+        Brain mask for the preprocessed ihMTR image.
+    work_dir : str
+        Path to the working directory.
+    """
+    # winsorize a bit to boost brightness of the brain
+    scalar_image = ants_helpers.winsorize_intensity(ihmt_bids.get_path(), mask_image, work_dir, lower_percentile=0.0,
+                                                    upper_iqr_scale=1.5)
+
+    ihmt_rgb = ants_helpers.convert_scalar_image_to_rgb(scalar_image, work_dir, mask=mask_image, colormap='jet', min_value=0.01,
+                                                         max_value=.25)
+
+    output_desc_ax = f"qcihMTRAx"
+    output_desc_cor = f"qcihMTRCor"
+
+    tiled_ihmtr_ax = ccreate_tiled_mosaic(scalar_image, mask_image, work_dir, overlay=ihmt_rgb,
+                                                      overlay_alpha=1, axis=1, pad='mask+5', flip_spec=(0,1), slice_spec=(3,'mask','mask'))
+    tiled_ihmtr_cor = ccreate_tiled_mosaic(scalar_image, mask_image, work_dir, overlay=ihmt_rgb,
+                                                       overlay_alpha=1, axis=0, pad='mask+5', slice_spec=(3,'mask','mask'))
+
+    system_helpers.copy_file(tiled_ihmtr_ax, ihmt_bids.get_derivative_path_prefix() + f"_desc-{output_desc_ax}.png")
+    system_helpers.copy_file(tiled_ihmtr_cor, ihmt_bids.get_derivative_path_prefix() + f"_desc-{output_desc_cor}.png")
 
 # ihmt_masked_bids = ihmt_bids
 # ihmt_mask = mask_bids
@@ -330,7 +364,7 @@ def compute_qc_stats(ihmt_bids, mask_bids, seg_bids, work_dir, t1w_brain_ihmt_sp
 
     if t1w_brain_ihmt_space_bids is not None:
         # template_brain_image = ants_helpers.apply_mask(template.get_path(), template_brain_mask.get_path(), work_dir)
-        t1w_template_corr = ants_helpers.image_correlation(t1w_brain_ihmt_space_bids.get_path(), ihmt_image,
+        t1w_template_corr = ants_helpers.image_correlation(t1w_brain_ihmt_space_bids.get_path(), ihmt_bids.get_path(),
                                                            work_dir)
 
     csf_vol = seg_vols[1]
@@ -362,6 +396,96 @@ def compute_qc_stats(ihmt_bids, mask_bids, seg_bids, work_dir, t1w_brain_ihmt_sp
 
         if t1w_brain_ihmt_space_bids is not None:
             f.write(f"t1w_ihmt_corr\t{t1w_template_corr:.4f}\n")
+
+
+def ccreate_tiled_mosaic(scalar_image, mask, work_dir, overlay=None, tile_shape=(-1, -1), overlay_alpha=0.25, axis=2,
+                        pad='mask+4', slice_spec=(3,'mask+8','mask-8'), flip_spec=(1,1), title_bar_text=None,
+                        title_bar_font_size=60):
+    """Create a tiled mosaic of a scalar image using a colormap.
+
+    Parameters:
+    -----------
+    scalar_image : str
+        Path to scalar image.
+    mask : str
+        Path to mask image. Required to properly set the bounds of the mosaic images.
+    work_dir : str
+        Path to working directory.
+    overlay : str, optional
+        Path to an overlay RGB image.
+    tile_shape : list, optional
+        Shape of the mosaic. Default is (-1,-1), which attempts to tile in a square shape.
+    overlay_alpha : float, optional
+        Alpha value for the overlay. Default is 0.25.
+    axis : int, optional
+        Axis to slice along, one of (0,1,2) for (x,y,z) respectively. Default is 2 = z.
+    pad : str, optional
+        Padding for the mosaic tiles. Either 'mask[+-]N' or 'N', where N is an integer. Default is 'mask+4', which puts 4
+        pixels of space around the bounding box of the mask.
+    slice_spec : list, optional
+        Slice specification in the form (interval, min, max). By default, the interval is 3, and the min and max are set to
+        'mask+8' and 'mask-8' respectively. This starts at an offset of +8 from the first slice within the mask, and ends
+        at an offset of -8 from the last slice within the mask. Set to (interval,mask,mask), to set the boundaries to the full
+        extent of the mask.
+    flip_spec : list, optional
+        Flip specification in the form (x,y). Default (1,1) works for LPI input.
+    title_bar_text : str, optional
+        Text to overlay on the title bar, if required. If not None, a black rectangle is added to the top of the image with
+        the specified text centered within it.
+    title_bar_font_size : int, optional
+        Font size for the title bar text, in points. Default is 60.
+
+    Returns:
+    --------
+    mosaic_image : str
+        Path to mosaic image
+    """
+    tmp_file_prefix = system_helpers.get_temp_file(work_dir, prefix='mosaic')
+
+    mosaic_file = f"{tmp_file_prefix}_mosaic.png"
+
+    # If pad contains 'mask', we need to extract the amount and pad the inputs accordingly
+    # This avoids an ANTs bug but has the pleasant side effect of ensuring that the user
+    # can always have as much padding as they request, even if the mask is close to the image boundary
+    scalar_input = scalar_image
+    mask_input = mask
+    overlay_input = overlay
+
+    if isinstance(pad, str) and 'mask' in pad and 0 is 1:
+        # pad_image splits the pad_amount between both sides in each dimension
+        # CreateTiledMosaic pads by the specified amount on each side, so we double it here
+        pad_amount = 2 * (int(pad.split('+')[-1]) + 1)
+        pad_spec = [pad_amount, pad_amount, pad_amount]
+
+        padded_scalar = pad_image(scalar_image, pad_spec, work_dir)
+        padded_mask = pad_image(mask, pad_spec, work_dir)
+        padded_overlay = None
+        if overlay is not None:
+            padded_overlay = pad_image(overlay, pad_spec, work_dir, image_is_rgb=True)
+
+        scalar_input = padded_scalar
+        mask_input = padded_mask
+        overlay_input = padded_overlay
+
+    cmd = ['CreateTiledMosaic', '-g', str(1), '-i', scalar_input,  '-x', mask_input, '-o', mosaic_file, '-t',
+           f"{tile_shape[0]}x{tile_shape[1]}", '-a', str(overlay_alpha), '-s',
+           f"[{slice_spec[0]},{slice_spec[1]},{slice_spec[2]}]", '-d', str(axis), "-f", f"{flip_spec[0]}x{flip_spec[1]}"]
+
+
+    #cmd = ['CreateTiledMosaic', '-g', 1, '-i', scalar_input,  '-x', mask_input, '-o', mosaic_file, '-t',
+    #       f"{tile_shape[0]}x{tile_shape[1]}", '-p', pad, '-a', str(overlay_alpha), '-s',
+    #       f"[{slice_spec[0]},{slice_spec[1]},{slice_spec[2]}]", '-d', str(axis), "-f", f"{flip_spec[0]}x{flip_spec[1]}"]
+
+    if overlay is not None:
+        cmd.extend(['-r', overlay_input])
+
+    system_helpers.run_command(cmd)
+
+    #if title_bar_text is not None:
+    #    mosaic_file = _add_text_to_slice(mosaic_file, title_bar_text, font_size=title_bar_font_size)
+
+    return mosaic_file
+
 
 
 
