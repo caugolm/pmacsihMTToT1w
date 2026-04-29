@@ -93,7 +93,7 @@ for line in $(cat ${imageList}); do
       --containall \
       -B /scratch:/tmp,${input_dataset},${repoDir},${imageList} \
       ${container} \
-        ${repoDir}/scripts/label_stats.py \
+        ${repoDir}/scripts/label_stats_plus.py \
         --input-dataset ${input_dataset} \
         --label-def-dir ${repoDir}/label_def \
         --participant ${participant} \

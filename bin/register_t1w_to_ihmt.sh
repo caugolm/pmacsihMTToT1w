@@ -102,7 +102,7 @@ for line in $(cat ${imageList}); do
       --containall \
       -B /scratch:/tmp,${antsnetct_dataset},${input_dataset},${output_dataset},${repoDir},${imageList} \
       ${container} \
-        ${repoDir}/scripts/register_t1w_to_ihmt.py \
+        ${repoDir}/scripts/register_t1w_to_ihmt_plus.py \
         --antsnetct-dataset ${antsnetct_dataset} \
         --input-dataset ${input_dataset} \
         --registration-mask-strategy ${mask_method} \

@@ -4,7 +4,8 @@ import antsnetct
 
 from antsnetct import ants_helpers,bids_helpers,system_helpers
 from ants import image_read as ants_image_read
-from ants import pad_image 
+from ants import image_write as ants_image_write
+from ants import pad_image, image_clone, iMath, morphology, iMath_propagate_labels_through_mask
 
 import argparse
 import glob
@@ -90,7 +91,7 @@ def t1w_to_ihmt_pipeline():
 
     if os.path.exists(os.path.join(output_dataset, f"sub-{participant}", f"ses-{session}", "anat")):
         logger.info(f"Outputs already exist for participant {participant}, session {session}")
-        # return
+        return
 
     input_dataset_description = None
 
@@ -271,8 +272,61 @@ def t1w_to_ihmt_pipeline():
                                                    ihmt_image_bids.get_derivative_rel_path_prefix() + \
                                                     '_space-ihmt_seg-antsnetct_dseg.nii.gz',
                                                    metadata={'Sources': [seg_bids.get_uri(relative=False)]})
+
+    # get WM segmentation mask
+    seg_in_ihmt_space_img = ants_image_read(seg_in_ihmt_bids.get_path())
+    dkt31_in_ihmt_space_img = ants_image_read(dkt31_in_ihmt_bids.get_path())
+
+
+    wm_mask = image_clone(seg_in_ihmt_space_img)
+    wm_mask[wm_mask > 2] = 0
+    wm_mask[wm_mask < 2] = 0
+    wm_mask[wm_mask == 2] = 1
+
+    # save wm mask
+    wm_mask_image_file = system_helpers.get_temp_file(work_dir, prefix='wm_mask') + '_wm_mask.nii.gz'
+    ants_image_write(wm_mask, wm_mask_image_file)
+    wm_mask_bids = bids_helpers.image_to_bids(wm_mask_image_file, output_dataset,
+                                                   ihmt_image_bids.get_derivative_rel_path_prefix() + \
+                                                    '_space-ihmt_seg-wm_dseg.nii.gz',
+                                                   metadata={'Sources': [seg_bids.get_uri(relative=False)]})
+
+ 
+    # dilate mask to overlap cortical labels
+    # wm_maskmd = morphology(wm_mask, operation='dilate', radius=2)
+    wm_maskmd = iMath(wm_mask, 'MD', 2)
+    wm_maskmd_image_file = system_helpers.get_temp_file(work_dir, prefix='wm_maskmd') + '_wm_maskmd.nii.gz'
+    ants_image_write(wm_maskmd, wm_maskmd_image_file)
+    wm_maskmd_bids = bids_helpers.image_to_bids(wm_maskmd_image_file, output_dataset,
+                                                   ihmt_image_bids.get_derivative_rel_path_prefix() + \
+                                                    '_space-ihmt_seg-wmmd_dseg.nii.gz',
+                                                   metadata={'Sources': [seg_bids.get_uri(relative=False)]})
+
+    # propagate the labels into the wm
+    wmmd_dkt = iMath_propagate_labels_through_mask(wm_maskmd, dkt31_in_ihmt_space_img)
+    wmmd_dkt_image_file = system_helpers.get_temp_file(work_dir, prefix='wm_propdkt') + '_wm_propdkt.nii.gz'
+    ants_image_write(wmmd_dkt, wmmd_dkt_image_file)
+    wmmd_dkt_bids = bids_helpers.image_to_bids(wmmd_dkt_image_file, output_dataset,
+                                                   ihmt_image_bids.get_derivative_rel_path_prefix() + \
+                                                    '_space-ihmt_seg-wmmddkt_dseg.nii.gz',
+                                                   metadata={'Sources': [seg_bids.get_uri(relative=False)]})    
+
+    # we just want white matter, so re-mask without the dilation
+    # wm_dkt_masked = wmmd_dkt * wm_mask
+    wm_dkt_masked = ants_helpers.apply_mask(wmmd_dkt_bids.get_path(), wm_mask_bids.get_path(), work_dir)
+
+    # save dkt wm labels
+    # wm_dkt_masked_image_file = system_helpers.get_temp_file(work_dir, prefix='wm_dkt_masked') + '_wm_dkt_masked.nii.gz'
+    # ants_image_write(wm_dkt_masked, wm_dkt_masked_image_file)
+
+    wm_dkt_masked_bids = bids_helpers.image_to_bids(wm_dkt_masked, output_dataset,
+                                                   ihmt_image_bids.get_derivative_rel_path_prefix() + \
+                                                    '_space-ihmt_seg-dkt31wm_dseg.nii.gz',
+                                                   metadata={'Sources': [dkt31_bids.get_uri(relative=False)]})
+
     compute_qc_stats(ihmt_masked_bids, ihmt_mask, seg_in_ihmt_bids, work_dir, t1w_warped_bids)
     make_ihMTR_qc_plots(ihmt_masked_bids, ihmt_mask.get_path(), work_dir)
+
 
 
 def make_ihMTR_qc_plots(ihmt_bids, mask_image, work_dir):
